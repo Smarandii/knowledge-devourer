@@ -11,3 +11,8 @@ wheels/
 .idea
 **.mp4
 **.flac
+**.txt
+**.mp3
+**.wav
+**.json
+**.srt
