@@ -3,7 +3,7 @@ import os.path
 import random
 import subprocess
 import time
-
+import json
 import requests
 import logging
 from instagram_reels.main.InstagramAPIClientImpl import InstagramAPIClientImpl
@@ -63,6 +63,22 @@ def extract_reel_id_from_link(reel_link: str) -> str:
         return reel_link.split("p/")[1].split("/")[0]
 
 
+def to_dict_recursively(obj):
+    # If it's already a dict, recurse into its values
+    if isinstance(obj, dict):
+        return {k: to_dict_recursively(v) for k, v in obj.items()}
+    # If it's a list or tuple, recurse into each element
+    elif isinstance(obj, (list, tuple)):
+        t = type(obj)
+        return t(to_dict_recursively(v) for v in obj)
+    # If it has a __dict__, turn that into a dict and recurse
+    elif hasattr(obj, "__dict__"):
+        return {k: to_dict_recursively(v) for k, v in vars(obj).items()}
+    # Otherwise it's a primitive (str/int/float/etc.), just return it
+    else:
+        return obj
+
+
 if __name__ == "__main__":
     reels_id = []
     with open('reels_links.txt', 'r') as f:
@@ -74,17 +90,19 @@ if __name__ == "__main__":
         try:
             print(f"Downloading {i + 1} out of {len(reels_id)}...")
             output_filename = f"./reels/{reel_id}.mp4"
-            reel_description_file = f"./reels_descriptions/{reel_id}.txt"
+            reel_description_file = f"./reels_descriptions/{reel_id}.json"
             output_audio_filename = f"./reels_audio/{reel_id}.flac"
+            reel_transcription_file = f"./vsub_output/{reel_id}.txt"
+            reel_subtitle_file = f"./vsub_output/{reel_id}.srt"
 
             random_delay = random.randint(10, 20)
 
-            # if not os.path.exists(output_filename) or not os.path.exists(reel_description_file):
-            #     reel_info = asyncio.run(download_reels(output_filename, reel_id))
-            #     ig_request_made = True
-            #
-            #     with open(reel_description_file, "w") as f:
-            #         f.write(str(reel_info))
+            if not os.path.exists(output_filename) or not os.path.exists(reel_description_file):
+                reel_info = asyncio.run(download_reels(output_filename, reel_id))
+                ig_request_made = True
+
+                with open(reel_description_file, "w") as f:
+                    json.dump(to_dict_recursively(reel_info), f, indent=4, ensure_ascii=True)
 
             if not os.path.exists(output_audio_filename) and os.path.exists(output_filename):
                 subprocess.run(f"ffmpeg -i {output_filename} -ar 16000 -ac 1 -map 0:a -c:a flac {output_audio_filename}")
