@@ -1,5 +1,5 @@
 import asyncio
-import os.path
+import os
 import random
 import subprocess
 import time
@@ -8,13 +8,17 @@ import requests
 import logging
 from instagram_reels.main.InstagramAPIClientImpl import InstagramAPIClientImpl
 
-# Configure logging for detailed output
+VSUB_PATH = os.getenv("VSUB_PATH", r"E:/Projects/python/video subtitler/.venv/Scripts/python.exe "
+                       r"E:/Projects/python/video subtitler/main.py")
+
+# --- configure logging ---
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s'
 )
 
 
+# --- Instagram client init ---
 async def init_client():
     logging.info("Initializing Instagram API client for reels...")
     client = await InstagramAPIClientImpl().reels()
@@ -22,100 +26,140 @@ async def init_client():
     return client
 
 
-async def download_reels(clip_name: str, reel_id: str):
+# --- download video and return the full metadata object ---
+async def download_reels(clip_path: str, reel_id: str):
     logging.info("Starting download for reel id: %s", reel_id)
     client = await init_client()
-    
-    logging.info("Fetching reel data...")
+
+    logging.info("Fetching reel data…")
     info = await client.get(reel_id)
     logging.debug("Reel info received: %s", info)
-    
-    # Check if we have any video URL
-    if not info.videos or not info.videos[0].url:
-        logging.error("No video URL found in the reel data.")
-        return
-    
-    video_url = info.videos[0].url
-    logging.info("Video URL found: %s", video_url)
-    
-    # Download the video using a streaming request
-    logging.info("Downloading video from %s", video_url)
-    response = requests.get(video_url, stream=True)
-    if response.status_code != 200:
-        logging.error("Failed to download video. Status code: %s", response.status_code)
-        return
 
-    total_bytes = 0
-    with open(clip_name, "wb+") as out_file:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                out_file.write(chunk)
-                total_bytes += len(chunk)
-    logging.info("Video downloaded successfully and saved as '%s' (%d bytes)", clip_name, total_bytes)
+    if not info.videos or not info.videos[0].url:
+        logging.error("No video URL found in reel data; skipping.")
+        return info
+
+    video_url = info.videos[0].url
+    logging.info("Downloading video from %s", video_url)
+    resp = requests.get(video_url, stream=True)
+    resp.raise_for_status()
+
+    os.makedirs(os.path.dirname(clip_path), exist_ok=True)
+    total = 0
+    with open(clip_path, "wb") as f:
+        for chunk in resp.iter_content(8192):
+            f.write(chunk)
+            total += len(chunk)
+    logging.info("Saved video to %s (%d bytes)", clip_path, total)
+
     return info
 
 
-def extract_reel_id_from_link(reel_link: str) -> str:
-    # https://www.instagram.com/reel/DDVav1xSJhL/?igsh=MXhwazBhNWFzMzE0Nw==
-    if "reel" in reel_link:
-        return reel_link.split("reel/")[1].split("/")[0]
-    if "p" in reel_link:
-        return reel_link.split("p/")[1].split("/")[0]
+# --- utility: extract reel ID from a URL ---
+def extract_reel_id_from_link(link: str) -> str:
+    if "reel/" in link:
+        return link.split("reel/")[1].split("/")[0]
+    if "p/" in link:
+        return link.split("p/")[1].split("/")[0]
+    raise ValueError(f"Can't parse reel ID from {link}")
 
 
+# --- utility: deep‐convert objects with __dict__ into plain dicts ---
 def to_dict_recursively(obj):
-    # If it's already a dict, recurse into its values
     if isinstance(obj, dict):
         return {k: to_dict_recursively(v) for k, v in obj.items()}
-    # If it's a list or tuple, recurse into each element
     elif isinstance(obj, (list, tuple)):
-        t = type(obj)
-        return t(to_dict_recursively(v) for v in obj)
-    # If it has a __dict__, turn that into a dict and recurse
+        return type(obj)(to_dict_recursively(v) for v in obj)
     elif hasattr(obj, "__dict__"):
         return {k: to_dict_recursively(v) for k, v in vars(obj).items()}
-    # Otherwise it's a primitive (str/int/float/etc.), just return it
     else:
         return obj
 
 
+# --- helper to download a single preview image ---
+def download_preview(url: str, dest_path: str):
+    logging.info("Downloading preview image from %s", url)
+    resp = requests.get(url, stream=True)
+    try:
+        resp.raise_for_status()
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        with open(dest_path, "wb") as f:
+            for chunk in resp.iter_content(8192):
+                f.write(chunk)
+        logging.info("Saved preview to %s", dest_path)
+    except Exception as e:
+        logging.error("Failed to download preview: %s", e)
+
+
+# --- entry point ---
 if __name__ == "__main__":
-    reels_id = []
-    with open('reels_links.txt', 'r') as f:
-        for line in f.readlines():
-            reels_id.append(extract_reel_id_from_link(line))
+    # load all reel URLs
+    reel_ids = []
+    with open("reels_links.txt", "r") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                reel_ids.append(extract_reel_id_from_link(line))
+            except ValueError:
+                logging.warning("Skipping unrecognized link: %s", line)
 
     ig_request_made = False
-    for i, reel_id in enumerate(reels_id):
+
+    for idx, reel_id in enumerate(reel_ids, start=1):
+        random_delay = random.randint(10, 20)
+        logging.info("Processing %d/%d: %s", idx, len(reel_ids), reel_id)
+
+        video_path = f"reels/{reel_id}.mp4"
+        preview_path = f"reels_previews/{reel_id}.jpg"
+        desc_path = f"reels_descriptions/{reel_id}.json"
+        audio_path = f"reels_audio/{reel_id}.flac"
+        vsub_output = "vsub_output"
+        subtitle_path = f"vsub_output/{reel_id}.srt"
+        transcript_path = f"vsub_output/{reel_id}.txt"
+
         try:
-            print(f"Downloading {i + 1} out of {len(reels_id)}...")
-            output_filename = f"./reels/{reel_id}.mp4"
-            reel_description_file = f"./reels_descriptions/{reel_id}.json"
-            output_audio_filename = f"./reels_audio/{reel_id}.flac"
-            reel_transcription_file = f"./vsub_output/{reel_id}.txt"
-            reel_subtitle_file = f"./vsub_output/{reel_id}.srt"
-
-            random_delay = random.randint(10, 20)
-
-            if not os.path.exists(output_filename) or not os.path.exists(reel_description_file):
-                reel_info = asyncio.run(download_reels(output_filename, reel_id))
+            # only fetch if we don't already have both video + description
+            if not os.path.exists(video_path) or not os.path.exists(desc_path):
+                info = asyncio.run(download_reels(video_path, reel_id))
                 ig_request_made = True
 
-                with open(reel_description_file, "w") as f:
-                    json.dump(to_dict_recursively(reel_info), f, indent=4, ensure_ascii=True)
+                # dump out the JSON of the metadata
+                with open(desc_path, "w", encoding="utf-8") as fh:
+                    json.dump(to_dict_recursively(info), fh, indent=2, ensure_ascii=False)
 
-            if not os.path.exists(output_audio_filename) and os.path.exists(output_filename):
-                subprocess.run(f"ffmpeg -i {output_filename} -ar 16000 -ac 1 -map 0:a -c:a flac {output_audio_filename}")
+                # pick highest‐res preview and download it
+                if hasattr(info, "previews") and info.previews:
+                    best = max(info.previews, key=lambda p: getattr(p, "width", 0))
+                    if not os.path.exists(preview_path):
+                        download_preview(best.url, preview_path)
 
+            # extract audio if needed
+            if not os.path.exists(audio_path) and os.path.exists(video_path):
+                subprocess.run(
+                    ["ffmpeg", "-i", video_path, "-ar", "16000", "-ac", "1",
+                     "-map", "0:a", "-c:a", "flac", audio_path],
+                    check=False
+                )
+
+            if not os.path.exists(transcript_path) or not os.path.exists(subtitle_path):
+                subprocess.run(
+                    [VSUB_PATH, audio_path, "-o", vsub_output],
+                    check=False
+                )
+
+            # throttle if we actually hit the API
             if ig_request_made:
-                print(f"Sleeping for {random_delay} seconds...")
+                logging.info("Sleeping for %d seconds to avoid rate‐limit...", random_delay)
                 time.sleep(random_delay)
                 ig_request_made = False
             else:
-                print(f"Already downloaded {reel_id}...")
-        except Exception as e:
-            print(f"Error while downloading reel {reel_id}...")
-            print(f"Sleeping for {random_delay} seconds...")
+                logging.info("Already have everything for %s, skipping.", reel_id)
+
+        except Exception as exc:
+            logging.error("Error processing %s: %s", reel_id, exc)
+            logging.info("Sleeping for %d seconds before continuing...", random_delay)
             time.sleep(random_delay)
             ig_request_made = False
             continue
