@@ -4,9 +4,14 @@ import random
 import subprocess
 import time
 import json
+from typing import List
+import datetime
+
 import requests
 import logging
+from outgram import Instagram
 from instagram_reels.main.InstagramAPIClientImpl import InstagramAPIClientImpl
+from outgram.models import InstagramPost
 
 # Get from https://github.com/Smarandii/video_subtitler.git
 VSUB_PYTHON = r"E:/Projects/python/video subtitler/.venv/Scripts/python.exe"
@@ -61,20 +66,33 @@ def extract_reel_id_from_link(link: str) -> (str, str):
     if "reel/" in link:
         return "reel", link.split("reel/")[1].split("/")[0]
     if "p/" in link:
-        return "post", link.split("p/")[1].split("/")[0]
+        # strip off any query string
+        code = link.split("p/")[1].split("/")[0]
+        return "post", code
     raise ValueError(f"Can't parse reel ID from {link}")
 
 
 # --- utility: deep‐convert objects with __dict__ into plain dicts ---
 def to_dict_recursively(obj):
+    # 1) datetime / date / time → ISO string
+    if isinstance(obj, (datetime.datetime, datetime.date, datetime.time)):
+        # for datetime, include timezone if present
+        return obj.isoformat()
+
+    # 2) dict → recurse over values
     if isinstance(obj, dict):
         return {k: to_dict_recursively(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
+
+    # 3) list or tuple → recurse each element
+    if isinstance(obj, (list, tuple)):
         return type(obj)(to_dict_recursively(v) for v in obj)
-    elif hasattr(obj, "__dict__"):
+
+    # 4) any object with __dict__ → recurse on its attributes
+    if hasattr(obj, "__dict__"):
         return {k: to_dict_recursively(v) for k, v in vars(obj).items()}
-    else:
-        return obj
+
+    # 5) everything else → leave as‑is
+    return obj
 
 
 # --- helper to download a single preview image ---
@@ -92,11 +110,10 @@ def download_preview(url: str, dest_path: str):
         logging.error("Failed to download preview: %s", e)
 
 
-# --- entry point ---
 if __name__ == "__main__":
     # load all reel URLs
-    reel_ids = []
-    post_ids = []
+    reel_ids: List[str] = []
+    post_ids: List[str] = []
     with open("reels_links.txt", "r") as fh:
         for line in fh:
             line = line.strip()
@@ -106,16 +123,42 @@ if __name__ == "__main__":
                 content_type, content_id = extract_reel_id_from_link(line)
                 if content_type == "reel":
                     reel_ids.append(content_id)
-                if content_type == "post":
+                else:  # "post"
                     post_ids.append(content_id)
             except ValueError:
                 logging.warning("Skipping unrecognized link: %s", line)
 
-    ig_request_made = False
+    ig_client = Instagram()
+    # First: download all POSTS (carousels, images, videos)
+    for idx, post_code in enumerate(post_ids, start=1):
+        logging.info("Downloading Instagram post %d/%d: %s", idx, len(post_ids), post_code)
+        desc_path = f"reels_descriptions/{post_code}.json"
+        try:
+            if os.path.exists(desc_path):
+                logging.info(f"Skipping already downloaded post: {post_code}...")
+                continue
+            post = ig_client.post(post_code)  # fetch metadata & all media URLs
+            ig_request_made = True
+            with open(desc_path, "w", encoding="utf-8") as fh:
+                json.dump(to_dict_recursively(post), fh, indent=2, ensure_ascii=False)
+            # Download each media (pictures/videos) in the post
+            for media_index, media in enumerate(ig_client.download(post, parallel=4), start=1):
+                media: InstagramPost
+                ext = media.content_type.split("/")[-1].lower()
+                if ext == "jpeg":
+                    ext = "jpg"
+                filename = f"posts/{post_code}_{media_index:03d}.{ext}"
+                logging.info("  Saving %s …", filename)
+                media.save(filename)
+            random_delay = random.randint(5, 20)
 
-    # TODO: Implement a way to download instagram posts by it's id too
-    for idx, post_id in enumerate(post_ids, start=1):
-        pass
+            if ig_request_made:
+                logging.info(f"Sleeping for {random_delay} seconds...")
+                time.sleep(random_delay)
+                ig_request_made = False
+        except Exception as e:
+            logging.error("Failed to download post %s: %s", post_code, e)
+            continue
 
     for idx, reel_id in enumerate(reel_ids, start=1):
         random_delay = random.randint(0, 5)
@@ -129,6 +172,7 @@ if __name__ == "__main__":
         subtitle_path = f"vsub_output/{reel_id}.srt"
         transcript_path = f"vsub_output/{reel_id}.txt"
 
+        ig_request_made = False
         try:
             # only fetch if we don't already have both video + description
             if not os.path.exists(video_path) or not os.path.exists(desc_path):
