@@ -6,14 +6,17 @@ import time
 import json
 from pathlib import Path
 
-from .config import (
-    DESCRIPTIONS_DIR, POSTS_DIR, REELS_DIR, PREVIEWS_DIR, AUDIO_DIR,
-    MIN_DELAY, MAX_DELAY, VSUB_PYTHON, VSUB_ENTRYPOINT
+from config import (
+    DESCRIPTIONS_DIR,
+    POSTS_DIR,
+    MIN_DELAY, MAX_DELAY,
+    VSUB_PYTHON,
+    VSUB_ENTRYPOINT
 )
-from .instagram_client import get_instagram_client
-from .utils import to_dict_recursively, extract_reel_id_from_link
-from .downloader import download_reels, download_preview_image, run_vsub
-from .logger import setup_logging
+from instagram_client import get_instagram_client
+from utils import to_dict_recursively, extract_reel_id_from_link
+from downloader import download_reels, download_preview_image, run_vsub
+from logger import setup_logging
 
 logger = setup_logging()
 

@@ -1,4 +1,3 @@
-import asyncio
 from outgram import Instagram
 from instagram_reels.main.InstagramAPIClientImpl import InstagramAPIClientImpl
 

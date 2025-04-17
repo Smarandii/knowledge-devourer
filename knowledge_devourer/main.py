@@ -1,6 +1,6 @@
 import sys
-from .processor import process_posts, process_reels
-from .logger import setup_logging
+from processor import process_posts, process_reels
+from logger import setup_logging
 
 logger = setup_logging()
 

@@ -1,19 +1,14 @@
 import os
-import random
-import time
 import requests
 import subprocess
-import asyncio
 
 from pathlib import Path
-from .config import (
-    REELS_DIR, PREVIEWS_DIR, AUDIO_DIR,
+from config import (
     VSUB_PYTHON, VSUB_ENTRYPOINT, VSUB_OUTPUT_DIR,
-    MIN_DELAY, MAX_DELAY,
 )
-from .utils import to_dict_recursively
-from .instagram_client import init_reels_client
-from .logger import setup_logging
+
+from instagram_client import init_reels_client
+from logger import setup_logging
 
 logger = setup_logging()
 

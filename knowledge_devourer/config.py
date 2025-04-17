@@ -1,6 +1,7 @@
 from pathlib import Path
 
 # External tools
+# Get from https://github.com/Smarandii/video_subtitler.git
 VSUB_PYTHON = Path("E:/Projects/python/video subtitler/.venv/Scripts/python.exe")
 VSUB_ENTRYPOINT = Path("E:/Projects/python/video subtitler/main.py")
 
