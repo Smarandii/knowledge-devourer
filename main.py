@@ -8,8 +8,9 @@ import requests
 import logging
 from instagram_reels.main.InstagramAPIClientImpl import InstagramAPIClientImpl
 
-VSUB_PATH = os.getenv("VSUB_PATH", r"E:/Projects/python/video subtitler/.venv/Scripts/python.exe "
-                       r"E:/Projects/python/video subtitler/main.py")
+# Get from https://github.com/Smarandii/video_subtitler.git
+VSUB_PYTHON = r"E:/Projects/python/video subtitler/.venv/Scripts/python.exe"
+VSUB_ENTRYPOINT = r"E:/Projects/python/video subtitler/main.py"
 
 # --- configure logging ---
 logging.basicConfig(
@@ -56,11 +57,11 @@ async def download_reels(clip_path: str, reel_id: str):
 
 
 # --- utility: extract reel ID from a URL ---
-def extract_reel_id_from_link(link: str) -> str:
+def extract_reel_id_from_link(link: str) -> (str, str):
     if "reel/" in link:
-        return link.split("reel/")[1].split("/")[0]
+        return "reel", link.split("reel/")[1].split("/")[0]
     if "p/" in link:
-        return link.split("p/")[1].split("/")[0]
+        return "post", link.split("p/")[1].split("/")[0]
     raise ValueError(f"Can't parse reel ID from {link}")
 
 
@@ -95,20 +96,29 @@ def download_preview(url: str, dest_path: str):
 if __name__ == "__main__":
     # load all reel URLs
     reel_ids = []
+    post_ids = []
     with open("reels_links.txt", "r") as fh:
         for line in fh:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
             try:
-                reel_ids.append(extract_reel_id_from_link(line))
+                content_type, content_id = extract_reel_id_from_link(line)
+                if content_type == "reel":
+                    reel_ids.append(content_id)
+                if content_type == "post":
+                    post_ids.append(content_id)
             except ValueError:
                 logging.warning("Skipping unrecognized link: %s", line)
 
     ig_request_made = False
 
+    # TODO: Implement a way to download instagram posts by it's id too
+    for idx, post_id in enumerate(post_ids, start=1):
+        pass
+
     for idx, reel_id in enumerate(reel_ids, start=1):
-        random_delay = random.randint(10, 20)
+        random_delay = random.randint(0, 5)
         logging.info("Processing %d/%d: %s", idx, len(reel_ids), reel_id)
 
         video_path = f"reels/{reel_id}.mp4"
@@ -144,10 +154,23 @@ if __name__ == "__main__":
                 )
 
             if not os.path.exists(transcript_path) or not os.path.exists(subtitle_path):
-                subprocess.run(
-                    [VSUB_PATH, audio_path, "-o", vsub_output],
-                    check=False
-                )
+                # ensure output folder exists
+                os.makedirs(vsub_output, exist_ok=True)
+
+                cmd = [
+                    VSUB_PYTHON,
+                    VSUB_ENTRYPOINT,
+                    video_path,
+                    "-s", subtitle_path,
+                    "-t", transcript_path,
+                    "-o", vsub_output
+                ]
+                logging.info("Running vsub: %s", cmd)
+                proc = subprocess.run(cmd, capture_output=True, text=True)
+
+                logging.info("vsub stdout:\n%s", proc.stdout)
+                if proc.stderr != '':
+                    logging.error("vsub stderr:\n%s", proc.stderr)
 
             # throttle if we actually hit the API
             if ig_request_made:
