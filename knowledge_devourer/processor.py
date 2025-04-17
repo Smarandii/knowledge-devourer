@@ -4,18 +4,18 @@ import random
 import subprocess
 import time
 import json
-from pathlib import Path
 
 from config import (
     DESCRIPTIONS_DIR,
     POSTS_DIR,
     MIN_DELAY, MAX_DELAY,
-    VSUB_PYTHON,
-    VSUB_ENTRYPOINT
+    SUBWHISPERER_OUTPUT_DIR
 )
+
+from subwhisperer.cli import process_video
 from instagram_client import get_instagram_client
 from utils import to_dict_recursively, extract_reel_id_from_link
-from downloader import download_reels, download_preview_image, run_vsub
+from downloader import download_reels, download_preview_image
 from logger import setup_logging
 
 logger = setup_logging()
@@ -63,9 +63,8 @@ def process_reels(links: list[str]):
         preview_path = f"reels_previews/{code}.jpg"
         desc_path = f"reels_descriptions/{code}.json"
         audio_path = f"reels_audio/{code}.flac"
-        vsub_output = "vsub_output"
-        subtitle_path = f"vsub_output/{code}.srt"
-        transcript_path = f"vsub_output/{code}.txt"
+        subtitle_path = f"{SUBWHISPERER_OUTPUT_DIR}/{code}.srt"
+        transcript_path = f"{SUBWHISPERER_OUTPUT_DIR}/{code}.txt"
 
         ig_request_made = False
         try:
@@ -94,22 +93,14 @@ def process_reels(links: list[str]):
 
             if not os.path.exists(transcript_path) or not os.path.exists(subtitle_path):
                 # ensure output folder exists
-                os.makedirs(vsub_output, exist_ok=True)
+                os.makedirs(SUBWHISPERER_OUTPUT_DIR, exist_ok=True)
 
-                cmd = [
-                    VSUB_PYTHON,
-                    VSUB_ENTRYPOINT,
-                    video_path,
-                    "-s", subtitle_path,
-                    "-t", transcript_path,
-                    "-o", vsub_output
-                ]
-                logger.info("Running vsub: %s", cmd)
-                proc = subprocess.run(cmd, capture_output=True, text=True)
-
-                logger.info("vsub stdout:\n%s", proc.stdout)
-                if proc.stderr != '':
-                    logger.error("vsub stderr:\n%s", proc.stderr)
+                process_video(
+                    video_file_full_path=video_path,
+                    subtitle_file_full_path=subtitle_path,
+                    txt_file_full_path=transcript_path,
+                    output_directory_full_path=SUBWHISPERER_OUTPUT_DIR
+                )
 
             # throttle if we actually hit the API
             if ig_request_made:

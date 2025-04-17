@@ -1,11 +1,7 @@
 import os
 import requests
-import subprocess
 
 from pathlib import Path
-from config import (
-    VSUB_PYTHON, VSUB_ENTRYPOINT, VSUB_OUTPUT_DIR,
-)
 
 from instagram_client import init_reels_client
 from logger import setup_logging
@@ -49,15 +45,3 @@ def download_preview_image(url: str, dest: Path):
     with open(dest, "wb") as f:
         for chunk in resp.iter_content(8192):
             f.write(chunk)
-
-
-def run_vsub(video: Path, srt: Path, txt: Path):
-    VSUB_OUTPUT_DIR.mkdir(exist_ok=True)
-    cmd = [
-        str(VSUB_PYTHON), str(VSUB_ENTRYPOINT),
-        str(video), "-s", str(srt), "-t", str(txt), "-o", str(VSUB_OUTPUT_DIR)
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    logger.info("vsub stdout:\n%s", proc.stdout)
-    if proc.stderr:
-        logger.error("vsub stderr:\n%s", proc.stderr)
