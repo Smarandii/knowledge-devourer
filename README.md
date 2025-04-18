@@ -1,3 +1,3 @@
 # Dependencies
 - ffmpeg
-- video_subtitler https://github.com/Smarandii/video_subtitler.git
+- Subwhisperer https://github.com/Smarandii/subwhisperer
